@@ -1,12 +1,16 @@
+import os
+import json
+import asyncio
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 from telegram.request import HTTPXRequest
-import asyncio
-from datetime import datetime
-import json
-import os
+import logging
 
-TOKEN = os.getenv("TOKEN")  # Railway will inject this
+logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+# 1. FIXED: Read TOKEN from Railway Variables, not hardcoded
+TOKEN = os.getenv("TOKEN")
 ADMIN_ID = 5980762931
 ADMIN_PASS = "21210"
 DB_FILE = "orders.json"
@@ -63,13 +67,12 @@ async def animate_loading(bot, chat_id):
 def build_orders_text(orders_dict, start_idx=0, title="ALL ORDERS"):
     if not orders_dict:
         return f"📦 No orders yet."
-    sorted_orders = sorted(orders_dict.items(), reverse=True) 
+    sorted_orders = sorted(orders_dict.items(), reverse=True)
     total = len(sorted_orders)
     end_idx = min(start_idx + PAGE_SIZE, total)
     text = f"📦 **{title}** `{start_idx+1}-{end_idx} of {total}`\n\n"
     for oid, o in sorted_orders[start_idx:end_idx]:
         status_emoji = "✅" if o["status"]=="Completed" else "❌" if o["status"]=="Cancelled" else "⏳"
-        # FIXED: Added.get() so old orders dont crash
         username = o.get('username', 'N/A')
         gmail = o.get('gmail', 'N/A')
         password = o.get('password', 'N/A')
@@ -445,11 +448,11 @@ async def admin_orders_requested(update: Update, context: ContextTypes.DEFAULT_T
 async def admin_confirm_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, start_idx=0):
     query = update.callback_query
     await query.answer()
-    
+
     pending_all = {oid: o for oid, o in ORDERS.items() if o["status"] in ["Pending", "Pending Payment", "Awaiting Admin Confirmation"]}
-    sorted_pending = sorted(pending_all.items(), reverse=True) 
+    sorted_pending = sorted(pending_all.items(), reverse=True)
     total = len(sorted_pending)
-    
+
     if total == 0:
         await query.edit_message_text("✅ **ORDER CONFIRMATION**\n\n📦 No pending orders.", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="admin_main")]]), parse_mode="Markdown")
         return
@@ -457,9 +460,8 @@ async def admin_confirm_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
     end_idx = min(start_idx + PAGE_SIZE, total)
     text = f"✅ **ORDER CONFIRMATION** `{start_idx+1}-{end_idx} of {total}`\n\n"
     keyboard = []
-    
+
     for oid, o in sorted_pending[start_idx:end_idx]:
-        # FIXED: Added.get() here too
         username = o.get('username', 'N/A')
         gmail = o.get('gmail', 'N/A')
         password = o.get('password', 'N/A')
@@ -472,7 +474,7 @@ async def admin_confirm_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         text += f"🔑 Pass: `{password}`\n"
         text += f"🕒 {o['time']}\n\n"
         keyboard.append([InlineKeyboardButton(f"✅ Accept #{oid}", callback_data=f"complete_{oid}"), InlineKeyboardButton(f"❌ Reject #{oid}", callback_data=f"cancel_{oid}")])
-    
+
     nav_buttons = []
     if start_idx > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"admin_confirm_{start_idx - PAGE_SIZE}"))
@@ -480,7 +482,7 @@ async def admin_confirm_menu(update: Update, context: ContextTypes.DEFAULT_TYPE,
         nav_buttons.append(InlineKeyboardButton("Next ➡️", callback_data=f"admin_confirm_{start_idx + PAGE_SIZE}"))
     nav_buttons.append(InlineKeyboardButton("⬅️ Back", callback_data="admin_main"))
     keyboard.append(nav_buttons)
-    
+
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def complete_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -543,8 +545,13 @@ async def button_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_confirm_menu(update, context, idx)
 
 def main():
+    if not TOKEN:
+        logging.error("FATAL: TOKEN environment variable not set on Railway")
+        return
+
     load_data()
     request = HTTPXRequest(connect_timeout=30, read_timeout=30)
+    # 2. FIXED: v20.7 syntax + drop_pending_updates
     app = ApplicationBuilder().token(TOKEN).request(request).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admincleesmart", admin))
@@ -552,7 +559,7 @@ def main():
     app.add_handler(CallbackQueryHandler(button_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, login_flow))
     app.add_handler(MessageHandler(filters.COMMAND, start))
-    print(f"🚀 Clee Smart bot running ✅")
+    logging.info(f"🚀 Clee Smart bot running ✅")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
