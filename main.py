@@ -6,7 +6,6 @@ from datetime import datetime
 import json
 import os
 
-import os
 TOKEN = os.getenv("TOKEN")  # Railway will inject this
 ADMIN_ID = 5980762931
 ADMIN_PASS = "21210"
